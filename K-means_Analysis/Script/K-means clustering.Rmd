@@ -1,0 +1,184 @@
+---
+title: "Disjunct Chaparral k-means clustering"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning=FALSE, 
+                      message=FALSE)
+```
+
+## Overview
+This is based on some tutorial code that I modified to fit my preliminary dataset. The data matrix includes 21 species (given as: *Genus species* = "GenSpe") sampled across 14 transects (T2, T3, etc.). T1 was omitted from this analysis. 9 of these species are defined as disjunct, whereas the other 12 listed are included because they were common at sites.
+
+The k-means results with k=2 show an association between species of a pine-oak assemblage and a separate association between species of a chaparral assemblage.
+
+A step-wise generation of code that produced these results is given below. The R-markdown output was not exactly the same as in R. For example, in R, the species were listed on the plots, whereas here there are just numbers.
+
+## Load libraries
+```{r}
+#Clear the environment
+rm(list=ls())
+
+#load libraries
+library(tidyverse)
+library(dplyr)
+library(kableExtra)
+library(cluster)
+library(factoextra)
+```
+
+## Look at Data
+```{r}
+
+#let's start preparing the data
+df <- read_csv('C:/Users/pfura/Documents/Microclimatic Refugia of Disjunct Chaparral Relicts in Mountains of the Eastern Mojave Desert/K-means clustering/Data/ChaparralKmeans2.csv')
+df %>% kbl() %>% kable_classic()
+
+#need to change the variable format
+df$Species <- as.character(df$Species)
+str(df)
+
+#change column variable as row names
+rownames(df) <- c(df$Species)
+head(df)
+
+#get rid of non-numeric first column
+df2 <- df[,-1]
+head(df2)
+
+#final preparation
+df2 <- na.omit(df2) #removes NAs #I don't have NAs but this is such a formality...
+df2 <- scale(df2) #standardize variables (recommended)
+head(df2)
+```
+
+## Distance matrix and k-means
+```{r, fig.align = "center"}
+#take a look at  the distance matrix
+#default is Euclidean distance
+distance <- get_dist(df)
+fviz_dist(distance, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+#red pairs are dissimilar
+#teal pairs are similar
+
+#ok, now we can make the k-means 
+k2 <- kmeans(df2, centers = 2, nstart = 25)
+str(k2)
+
+#lots of info here
+#cluster: A vector of integers (from 1:k) indicating the cluster to which each point is allocated.
+#centers: A matrix of cluster centers.
+#totss: The total sum of squares.
+#withinss: Vector of within-cluster sum of squares, one component per cluster.
+#tot.withinss: Total within-cluster sum of squares, i.e. sum(withinss).
+#betweenss: The between-cluster sum of squares, i.e. $totss-tot.withinss$.
+#size: The number of points in each cluster.
+```
+
+## Look at output using PCA
+```{r, fig.align = "center"}
+#print results
+k2 
+
+#illustrate results with PCA
+fviz_cluster(k2, data = df2)
+```
+
+## Look for approriate levels of k
+```{r, fig.align = "center"}
+#experiment with different number of k clusters
+k2 <- kmeans(df2, centers = 2, nstart = 25)
+k3 <- kmeans(df2, centers = 3, nstart = 25)
+k4 <- kmeans(df2, centers = 4, nstart = 25)
+k5 <- kmeans(df2, centers = 5, nstart = 25)
+k6 <- kmeans(df2, centers = 6, nstart = 25)
+
+#illustrate results with PCA
+fviz_cluster(k6, data = df2) #an example with k=6
+
+# plots to compare
+p1 <- fviz_cluster(k2, geom = "point",  data = df2) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = df2) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = df2) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = df2) + ggtitle("k = 5")
+p5 <- fviz_cluster(k6, geom = "point",  data = df2) + ggtitle("k = 6")
+
+#arrange all the plots above into a single figure
+library(gridExtra)
+grid.arrange(p1, p2, p3, p4, p5, nrow = 2)
+
+###determine appropriate no. of clusters via elbow, average silhouette or gap method
+
+#elbow method
+set.seed(123)
+
+#function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(df2, k, nstart = 10 )$tot.withinss
+}
+
+#compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+#extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+plot(k.values, wss_values,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+
+#same as above in a single function
+set.seed(123)
+
+fviz_nbclust(df2, kmeans, method = "wss") #k=6 is the 'bend in the knee' so k=6 is best
+
+#average silhouette method
+#function to compute average silhouette for k clusters
+
+#same as above in a single function
+fviz_nbclust(df2, kmeans, method = "silhouette") #suggests k=2 is best
+
+#gap method
+#compute gap statistic
+set.seed(123)
+gap_stat <- clusGap(df2, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+#print the result
+print(gap_stat, method = "firstmax")
+
+#visualize results
+fviz_gap_stat(gap_stat) #suggets k = 1 is best
+```
+
+## Final analysis with k = 2
+```{r, fig.align = "center", results = "hide"}
+#it pretty much looks like two clusters: pine-oak woodland and chaparral
+#with support from the average shillouette method
+#compute k-means clustering with k = 2
+set.seed(123)
+final <- kmeans(df2, 2, nstart = 25)
+print(final)
+
+fviz_cluster(final, data = df2, repel = TRUE, ellipse = TRUE,show.clust.cent = FALSE, main = FALSE)+
+             scale_colour_manual(values = c("dodger blue","red")) +
+             scale_fill_manual(values = c("light blue", "orange"))+
+             theme_bw()+
+             ggsave("kmeans.png")
+
+#final output with k = 2
+final_output<-df %>% ###seems like I have to use the non-standardized data here
+  mutate(Cluster = final$cluster) %>%
+  group_by(Cluster) %>%
+  summarise_all("mean")
+final_output %>% kbl() %>% kable_classic()
+```
+
+## Discussion
+The average silhouette width indicated that k = 2 was the most appropriate assignment with this matrix data, with clusters of size n = 6 and n = 15 species respectively. The n = 6 cluster appears to be defined as an assemblage of species associated with a pine-oak woodland, whereas the n = 15 cluster appears to be defined as an assemblage of species associated with chaparral. While there were some species that were assigned to the chaparral cluster that seem more characteristic of pine-oak woodland (e.g. Juniperus osteosperma and Pinus edulis), species assignment overall points to the occurrence of two major plant assemblages found within the sites sampled. 
